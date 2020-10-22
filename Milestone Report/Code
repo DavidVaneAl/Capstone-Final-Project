@@ -1,0 +1,508 @@
+---
+title: "Milestone Report"
+author: "DavidVan"
+date: "10/20/2020"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+---
+
+# Exploratory data analyses
+## Load necessary libraries
+```{r warning = FALSE, message = FALSE}
+library(knitr)
+library(tidyr)
+library(rJava)
+library(RWeka)
+library(dplyr)
+library(doParallel)
+library(stringi)
+library(tm)
+library(ggplot2)
+library(textclean)
+```
+
+<br>
+
+## Download and load Capstone dataset  
+```{r eval = FALSE, warning = FALSE, message = FALSE}
+temp <- tempfile()
+ArchivoZip <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+download.file(ArchivoZip, temp)
+final <- unzip(temp)
+```
+
+<br>
+
+Download and load Bad Words file
+```{r warning = FALSE, message = FALSE}
+badWords <- VectorSource(readLines(file("https://raw.githubusercontent.com/RobertJGabriel/Google-profanity-words/master/list.txt", "r")))
+```
+
+## Load Data
+Read Blogs, News and Twitter data
+```{r warning = FALSE, message = FALSE}
+blogs <- readLines("final//en_US//en_US.blogs.txt", encoding = "UTF-8", skipNul = TRUE)
+news <- readLines("final//en_US//en_US.news.txt", encoding = "UTF-8", skipNul = TRUE)
+tweets <- readLines("final//en_US//en_US.twitter.txt", encoding = "UTF-8", skipNul = TRUE)
+```
+
+<br>
+
+Get file sizes in Mb
+```{r}
+bl_sz <- file.info("final//en_US//en_US.blogs.txt")$size / 1024 ^ 2
+nw_sz <- file.info("final//en_US//en_US.news.txt")$size / 1024 ^ 2
+tw_sz <- file.info("final//en_US//en_US.twitter.txt")$size / 1024 ^ 2
+```
+
+<br>
+
+Compute words per line for each data type
+```{r}
+word_line <- lapply(list(blogs, news, tweets), function(x) stri_count_words(x))
+```
+
+<br>
+
+## Compute statistics and summary for each data type
+```{r}
+sum_data <- data.frame(
+        File = c("Blogs", "News", "Tweets"), 
+        Size = c(bl_sz, nw_sz, tw_sz),
+        t(rbind(sapply(list(blogs, news, tweets),stri_stats_general),
+                Total_Words = sapply(list(blogs, news, tweets),
+                                     stri_stats_latex)[4,])),
+        wd_line_summary = rbind(summary(word_line[[1]]),
+        summary(word_line[[2]]),summary(word_line[[3]]))
+)
+head(sum_data)
+```
+
+<br>
+
+```{r echo = FALSE, fig.width = 10, fig.height = 7}
+ggplot(sum_data, aes(x = factor(File), y = Lines))+
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Lines), vjust = -0.5)+
+        xlab("Text source") + ylab("Total of lines") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Count of lines per source"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+Fig. 1. Count of lines per source [Appendix 1.](#appendix1)
+
+<br>
+
+```{r echo = FALSE, fig.width = 10, fig.height = 7}
+ggplot(sum_data, aes(x = factor(File), y = Total_Words))+
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = round(Total_Words)), vjust = -0.5)+
+        xlab("Text source") + ylab("Total of words") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Count of words per source"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+Fig. 2. Count of words per source [Appendix 2.](#appendix2)
+
+
+# Sampling and Cleaning Data
+
+Sample data, create corpus and clean data. In this step, remove bad words, punctuation, numbers and extra white spaces; likewise, transform uppercase characters to lowercase characters.
+```{r}
+set.seed(1987)
+data.sample <- c(sample(blogs, length(blogs) * 0.01),
+                 sample(news, length(news) * 0.01),
+                 sample(tweets, length(tweets) * 0.01))
+
+corpus <- VCorpus(VectorSource(data.sample))
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, stripWhitespace)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeWords, badWords)
+# Corpus without English stop words
+corpus2 <- tm_map(corpus, removeWords, stopwords("english"))
+```
+
+<br>
+
+Find each n-grams in the data using a function 
+```{r}
+corpusDf <- data.frame(text = unlist(sapply(corpus,
+                `[`, "content")), stringsAsFactors = F)
+
+corpusDf2 <- data.frame(text = unlist(sapply(corpus2,
+                `[`, "content")), stringsAsFactors = F)
+
+findNGrams <- function(corp, grams) {
+        ngram <- NGramTokenizer(corp, Weka_control(min = grams, max = grams))
+        ngram2 <- data.frame(table(ngram))
+        ngram3 <- ngram2[order(ngram2$Freq, decreasing = TRUE),]
+        ngram3
+}
+```
+
+Further exploratory analysis is done to plot frequency of the most occurring words in unigrams, bigrams and trigrams
+
+# Built n-grams with English stop words and save data in a .RDS file
+
+## Unigram data 
+
+```{r}
+UniGrams <- findNGrams(corpusDf, 1)
+saveRDS(UniGrams, file = "Unigram.RDS")
+```
+ 
+```{r echo = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(UniGrams, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Unigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+Fig. 3. Unigram plot [Appendix 3.](#appendix3)
+
+## Bigram data
+```{r}
+BiGrams <- findNGrams(corpusDf, 2)
+bigrams_sep <- separate(BiGrams, ngram, c("word1", "word2"), sep = " ")
+saveRDS(bigrams_sep, file = "Bigram.RDS")
+```
+
+```{r echo = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(BiGrams, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Bigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+Fig. 4. Bigram plot [Appendix 4.](#appendix4)
+
+## Trigram data
+```{r}
+TriGrams <- findNGrams(corpusDf, 3)
+trigrams_sep <- separate(TriGrams, ngram, c("word1", "word2", "word3"), sep = " ")
+saveRDS(trigrams_sep, file = "Trigram.RDS")
+```
+
+```{r echo = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(TriGrams, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Trigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+Fig. 5. Trigram plot [Appendix 5.](#appendix5)
+
+# Built n-grams without English stop words
+
+## Unigram data
+```{r}
+UniGrams2 <- findNGrams(corpusDf2, 1)
+saveRDS(UniGrams2, file = "Unigram1.RDS")
+```
+ 
+```{r echo = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(UniGrams2, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Unigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+Fig. 6. Unigram plot [Appendix 6.](#appendix6)
+
+## Bigram data
+```{r}
+BiGrams2 <- findNGrams(corpusDf2, 2)
+bigrams_sep2 <- separate(BiGrams2, ngram, c("word1", "word2"), sep = " ")
+saveRDS(bigrams_sep2, file = "Bigram1.RDS")
+```
+
+```{r echo = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(BiGrams2, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Bigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+Fig. 7. Bigram plot [Appendix 7.](#appendix7)
+
+## Trigram data
+```{r}
+TriGrams2 <- findNGrams(corpusDf2, 3)
+trigrams_sep2 <- separate(TriGrams2, ngram, c("word1", "word2", "word3"), sep = " ")
+saveRDS(trigrams_sep2, file = "Trigram1.RDS")
+```
+
+```{r echo = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(TriGrams2, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Trigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+Fig. 8. Trigram plot [Appendix 8.](#appendix8)
+
+# Appendix
+
+<a name="appendix1"></a>Appendix 1
+```{r eval = FALSE, fig.width = 10, fig.height = 7}
+ggplot(sum_data, aes(x = factor(File), y = Lines))+
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Lines), vjust = -0.5)+
+        xlab("Text source") + ylab("Total of lines") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Count of lines per source"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+
+<a name="appendix2"></a>Appendix 2
+```{r eval= FALSE, fig.width = 10, fig.height = 7}
+ggplot(sum_data, aes(x = factor(File), y = Total_Words))+
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = round(Total_Words)), vjust = -0.5)+
+        xlab("Text source") + ylab("Total of words") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Count of words per source"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+
+<a name="appendix3"></a>Appendix 3
+```{r eval = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(UniGrams, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Unigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+
+<a name="appendix4"></a>Appendix 4
+```{r eval = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(BiGram, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Bigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+     theme(panel.background = element_blank())
+```
+
+<a name="appendix5"></a>Appendix 5
+```{r eval = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(TriGram, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Trigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+     theme(panel.background = element_blank())
+```
+
+<a name="appendix6"></a>Appendix 6
+```{r eval = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(UniGrams2, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Unigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+        theme(panel.background = element_blank())
+```
+
+<a name="appendix7"></a>Appendix 7
+```{r eval = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(BiGram2, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Bigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+     theme(panel.background = element_blank())
+```
+
+<a name="appendix8"></a>Appendix 8
+```{r eval = FALSE, fig.width = 10, fig.height = 7}
+ggplot(head(TriGram2, 15), aes(x = reorder(ngram, -Freq), y = Freq)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = Freq), vjust = -0.5)+
+        xlab("Words") + ylab("Count") +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+        theme(plot.title = element_text(size = 25, face = "bold"))+
+        theme(plot.title = element_text(margin = margin(0, 0, 20, 0)))+
+        theme(axis.text.x = element_text(size = 12))+
+        theme(axis.text.y = element_text(size = 12))+
+        theme(axis.title.x = element_text(size = 12, face = "bold"))+
+        theme(axis.title.x = element_text(margin = margin(20, 0, 0, 0)))+
+        theme(axis.title.y = element_text(size = 12, face = "bold"))+
+        theme(axis.title.y = element_text(margin = margin(0, 20, 0, 0)))+
+        ggtitle(expression(textstyle(atop("Trigrams"))))+
+        theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+     theme(panel.background = element_blank())
+```
