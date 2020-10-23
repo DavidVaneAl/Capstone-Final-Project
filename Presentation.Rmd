@@ -1,0 +1,46 @@
+---
+title: "Data Science Capstone Project"
+author: "DavidVan"
+date: "10/22/2020"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduction 
+
+The **goal** of the Capstone project is to create an application to predict the next word in a sentence. For this project we have the following objectives to develop an optimal application
+
+1. Analyze large textual dataset 
+2. Build an algorithm to predict words
+3. Create a predictive web application [Shiny Apps](https://www.shinyapps.io)
+4. Create a presentation in order to explain the steps taken to develop the project
+
+## Algorithm
+
+- Download provided dataset: blogs, news and twitter source from [HERE](http://www.corpora.heliohost.org/)
+Data processing: sampling, cleaning, local storage for text with and without English Stop Words
+- Built N-grams: 2 and 3 grams were created for the prediction 
+
+<center><img src="Milestone.png" height="350px" /></center>
+
+## Predictor Shiny App 
+
+- Prediction: use input words as a reference to search for the n-gram table. The most frequent next words will be shown as the return value.
+
+<center><img src="capture.png" height="350px" /></center>
+
+## Information
+
+1. All codes can be found at [Git Hub](https://github.com/DavidVaneAl/Capstone-Final-Project)
+2. Milestone report can be found at [Milestone report](https://rpubs.com/DavidVaneAl/676436)
+3. Shiny App can be found at [Predictor](https://davidvaneal.shinyapps.io/Prediction/)
+
+Thanks...!
+
+<center><img src="coursera.jpg" height="250px" /></center>
+
+
+
